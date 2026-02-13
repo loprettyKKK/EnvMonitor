@@ -1,0 +1,160 @@
+package com.example.envmonitor;
+
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class TcpClient {
+    private static final String TAG = "TcpClient";
+    private static final String SERVER_IP = "192.168.4.1";
+    private static final int SERVER_PORT = 8080;
+    
+    private Socket socket;
+    private OutputStream outputStream;
+    private InputStream inputStream;
+    private ExecutorService executorService;
+    private Handler mainHandler;
+    private OnDataReceivedListener dataListener;
+    private OnConnectionListener connectionListener;
+    private boolean isConnected = false;
+    private boolean isRunning = false;
+
+    public interface OnDataReceivedListener {
+        void onDataReceived(String data);
+    }
+
+    public interface OnConnectionListener {
+        void onConnected();
+        void onDisconnected(String reason);
+        void onError(String error);
+    }
+
+    public TcpClient() {
+        executorService = Executors.newSingleThreadExecutor();
+        mainHandler = new Handler(Looper.getMainLooper());
+    }
+
+    public void setOnDataReceivedListener(OnDataReceivedListener listener) {
+        this.dataListener = listener;
+    }
+
+    public void setOnConnectionListener(OnConnectionListener listener) {
+        this.connectionListener = listener;
+    }
+
+    public void connect() {
+        executorService.execute(() -> {
+            try {
+                if (socket != null && socket.isConnected()) disconnect();
+
+                socket = new Socket(SERVER_IP, SERVER_PORT);
+                socket.setSoTimeout(5000);
+                outputStream = socket.getOutputStream();
+                inputStream = socket.getInputStream();
+                
+                isConnected = true;
+                isRunning = true;
+                
+                mainHandler.post(() -> {
+                    if (connectionListener != null) connectionListener.onConnected();
+                });
+
+                startReceiveThread();
+
+            } catch (IOException e) {
+                Log.e(TAG, "连接失败: " + e.getMessage());
+                mainHandler.post(() -> {
+                    if (connectionListener != null) connectionListener.onError("连接失败: " + e.getMessage());
+                });
+            }
+        });
+    }
+
+    private void startReceiveThread() {
+        executorService.execute(() -> {
+            byte[] buffer = new byte[1024];
+            StringBuilder dataBuffer = new StringBuilder();
+            
+            while (isRunning && isConnected) {
+                try {
+                    int available = inputStream.available();
+                    if (available > 0) {
+                        int len = inputStream.read(buffer);
+                        if (len > 0) {
+                            String received = new String(buffer, 0, len, StandardCharsets.UTF_8);
+                            dataBuffer.append(received);
+                            
+                            String data = dataBuffer.toString();
+                            if (data.contains("#")) {
+                                mainHandler.post(() -> {
+                                    if (dataListener != null) dataListener.onDataReceived(data);
+                                });
+                                dataBuffer.setLength(0);
+                            }
+                        }
+                    } else {
+                        Thread.sleep(50);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "接收数据错误: " + e.getMessage());
+                    if (isRunning) disconnect();
+                }
+            }
+        });
+    }
+
+    public void sendCommand(String command) {
+        if (!isConnected || outputStream == null) {
+            Log.e(TAG, "未连接，无法发送");
+            return;
+        }
+        
+        executorService.execute(() -> {
+            try {
+                String fullCommand = command + "\n";
+                outputStream.write(fullCommand.getBytes(StandardCharsets.UTF_8));
+                outputStream.flush();
+                Log.d(TAG, "发送命令: " + command);
+            } catch (IOException e) {
+                Log.e(TAG, "发送失败: " + e.getMessage());
+                mainHandler.post(() -> {
+                    if (connectionListener != null) connectionListener.onError("发送失败: " + e.getMessage());
+                });
+            }
+        });
+    }
+
+    public void setTempMax(int value) { sendCommand("temp_max:" + value + ","); }
+    public void setHumiMax(int value) { sendCommand("humi_max:" + value + ","); }
+    public void setCh2oMax(float value) { sendCommand(String.format("chIIo:%.2f.", value)); }
+    public void setPm25Max(int value) { sendCommand("pm_max:" + value); }
+    public void setCoMax(int value) { sendCommand("co_max:" + value + ","); }
+
+    public void disconnect() {
+        isRunning = false;
+        isConnected = false;
+        
+        try {
+            if (inputStream != null) inputStream.close();
+            if (outputStream != null) outputStream.close();
+            if (socket != null) socket.close();
+        } catch (IOException e) {
+            Log.e(TAG, "断开连接错误: " + e.getMessage());
+        }
+        
+        mainHandler.post(() -> {
+            if (connectionListener != null) connectionListener.onDisconnected("连接已断开");
+        });
+    }
+
+    public boolean isConnected() {
+        return isConnected && socket != null && socket.isConnected();
+    }
+}

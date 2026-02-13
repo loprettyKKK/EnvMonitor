@@ -1,0 +1,238 @@
+package com.example.envmonitor;
+
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.net.wifi.WifiConfiguration;
+import android.net.wifi.WifiManager;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.View;
+import android.widget.Button;
+import android.widget.TextView;
+import android.widget.Toast;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import com.example.envmonitor.model.SensorData;
+import java.util.List;
+
+public class MainActivity extends AppCompatActivity {
+    private static final String WIFI_SSID = "ESP8266_WIFI";
+    private static final String WIFI_PASSWORD = "12345678";
+    private static final int PERMISSION_REQUEST_CODE = 100;
+
+    private TcpClient tcpClient;
+    private WifiManager wifiManager;
+    private Handler uiHandler;
+    
+    private TextView tvConnectionStatus;
+    private TextView tvTemp, tvHumi, tvCh2o, tvPm25, tvCo;
+    private View cardTemp, cardHumi, cardCh2o, cardPm25, cardCo;
+    private Button btnConnect, btnSettings;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        initViews();
+        initWifiManager();
+        initTcpClient();
+        checkPermissions();
+    }
+
+    private void initViews() {
+        tvConnectionStatus = findViewById(R.id.tv_connection_status);
+        tvTemp = findViewById(R.id.tv_temp);
+        tvHumi = findViewById(R.id.tv_humi);
+        tvCh2o = findViewById(R.id.tv_ch2o);
+        tvPm25 = findViewById(R.id.tv_pm25);
+        tvCo = findViewById(R.id.tv_co);
+        
+        cardTemp = findViewById(R.id.card_temp);
+        cardHumi = findViewById(R.id.card_humi);
+        cardCh2o = findViewById(R.id.card_ch2o);
+        cardPm25 = findViewById(R.id.card_pm25);
+        cardCo = findViewById(R.id.card_co);
+        
+        btnConnect = findViewById(R.id.btn_connect);
+        btnSettings = findViewById(R.id.btn_settings);
+
+        btnConnect.setOnClickListener(v -> toggleConnection());
+        btnSettings.setOnClickListener(v -> showSettingsDialog());
+    }
+
+    private void initWifiManager() {
+        wifiManager = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+        uiHandler = new Handler(Looper.getMainLooper());
+    }
+
+    private void initTcpClient() {
+        tcpClient = new TcpClient();
+        
+        tcpClient.setOnConnectionListener(new TcpClient.OnConnectionListener() {
+            @Override
+            public void onConnected() {
+                runOnUiThread(() -> {
+                    tvConnectionStatus.setText("已连接");
+                    tvConnectionStatus.setTextColor(Color.GREEN);
+                    btnConnect.setText("断开连接");
+                    Toast.makeText(MainActivity.this, "连接成功", Toast.LENGTH_SHORT).show();
+                });
+            }
+
+            @Override
+            public void onDisconnected(String reason) {
+                runOnUiThread(() -> {
+                    tvConnectionStatus.setText("未连接");
+                    tvConnectionStatus.setTextColor(Color.RED);
+                    btnConnect.setText("连接设备");
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, error, Toast.LENGTH_LONG).show());
+            }
+        });
+
+        tcpClient.setOnDataReceivedListener(data -> {
+            SensorData sensorData = DataParser.parse(data);
+            if (sensorData != null) updateUI(sensorData);
+        });
+    }
+
+    private void toggleConnection() {
+        if (tcpClient.isConnected()) tcpClient.disconnect();
+        else connectToDevice();
+    }
+
+    private void connectToDevice() {
+        if (!isConnectedToTargetWifi()) connectToWifi();
+        else tcpClient.connect();
+    }
+
+    private boolean isConnectedToTargetWifi() {
+        if (wifiManager.getConnectionInfo() != null) {
+            String ssid = wifiManager.getConnectionInfo().getSSID();
+            return ssid != null && ssid.contains(WIFI_SSID);
+        }
+        return false;
+    }
+
+    private void connectToWifi() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            Toast.makeText(this, "请手动连接WiFi: " + WIFI_SSID, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        WifiConfiguration wifiConfig = new WifiConfiguration();
+        wifiConfig.SSID = "\"" + WIFI_SSID + "\"";
+        wifiConfig.preSharedKey = "\"" + WIFI_PASSWORD + "\"";
+        wifiConfig.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_PSK);
+
+        int netId = wifiManager.addNetwork(wifiConfig);
+        if (netId != -1) {
+            wifiManager.enableNetwork(netId, true);
+            wifiManager.reconnect();
+            Toast.makeText(this, "正在连接WiFi...", Toast.LENGTH_SHORT).show();
+            uiHandler.postDelayed(() -> tcpClient.connect(), 3000);
+        } else {
+            List<WifiConfiguration> configs = wifiManager.getConfiguredNetworks();
+            for (WifiConfiguration config : configs) {
+                if (config.SSID != null && config.SSID.contains(WIFI_SSID)) {
+                    wifiManager.enableNetwork(config.networkId, true);
+                    wifiManager.reconnect();
+                    uiHandler.postDelayed(() -> tcpClient.connect(), 3000);
+                    return;
+                }
+            }
+            Toast.makeText(this, "WiFi连接失败", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void updateUI(SensorData data) {
+        runOnUiThread(() -> {
+            tvTemp.setText(data.getTemperature() + "°C");
+            cardTemp.setBackgroundColor(data.isTempWarn() ? Color.parseColor("#FFCDD2") : Color.WHITE);
+            
+            tvHumi.setText(data.getHumidity() + "%");
+            cardHumi.setBackgroundColor(data.isHumiWarn() ? Color.parseColor("#FFCDD2") : Color.WHITE);
+            
+            tvCh2o.setText(String.format("%.3f mg/m³", data.getCh2o()));
+            cardCh2o.setBackgroundColor(data.isCh2oWarn() ? Color.parseColor("#FFCDD2") : Color.WHITE);
+            
+            tvPm25.setText(data.getPm25() + " μg/m³");
+            cardPm25.setBackgroundColor(data.isPm25Warn() ? Color.parseColor("#FFCDD2") : Color.WHITE);
+            
+            tvCo.setText(data.getCo() + " ppm");
+            cardCo.setBackgroundColor(data.isCoWarn() ? Color.parseColor("#FFCDD2") : Color.WHITE);
+        });
+    }
+
+    private void showSettingsDialog() {
+        if (!tcpClient.isConnected()) {
+            Toast.makeText(this, "请先连接设备", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        SettingsDialog dialog = new SettingsDialog(this);
+        dialog.setOnSettingConfirmListener(new SettingsDialog.OnSettingConfirmListener() {
+            @Override
+            public void onTempSet(int value) { tcpClient.setTempMax(value); }
+            @Override
+            public void onHumiSet(int value) { tcpClient.setHumiMax(value); }
+            @Override
+            public void onCh2oSet(float value) { tcpClient.setCh2oMax(value); }
+            @Override
+            public void onPm25Set(int value) { tcpClient.setPm25Max(value); }
+            @Override
+            public void onCoSet(int value) { tcpClient.setCoMax(value); }
+        });
+        dialog.show();
+    }
+
+    private void checkPermissions() {
+        String[] permissions = {
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_WIFI_STATE,
+            Manifest.permission.CHANGE_WIFI_STATE
+        };
+
+        boolean allGranted = true;
+        for (String permission : permissions) {
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                allGranted = false;
+                break;
+            }
+        }
+
+        if (!allGranted) {
+            ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(this, "需要权限才能使用WiFi功能", Toast.LENGTH_LONG).show();
+                    return;
+                }
+            }
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (tcpClient != null) tcpClient.disconnect();
+    }
+}

@@ -1,0 +1,55 @@
+package com.example.envmonitor.model;
+
+public class SensorData {
+    private int temperature;
+    private int humidity;
+    private float ch2o;
+    private int pm25;
+    private int co;
+    
+    private boolean tempWarn;
+    private boolean humiWarn;
+    private boolean ch2oWarn;
+    private boolean pm25Warn;
+    private boolean coWarn;
+
+    public int getTemperature() { return temperature; }
+    public void setTemperature(int temperature) { this.temperature = temperature; }
+    
+    public int getHumidity() { return humidity; }
+    public void setHumidity(int humidity) { this.humidity = humidity; }
+    
+    public float getCh2o() { return ch2o; }
+    public void setCh2o(float ch2o) { this.ch2o = ch2o; }
+    
+    public int getPm25() { return pm25; }
+    public void setPm25(int pm25) { this.pm25 = pm25; }
+    
+    public int getCo() { return co; }
+    public void setCo(int co) { this.co = co; }
+    
+    public boolean isTempWarn() { return tempWarn; }
+    public void setTempWarn(boolean tempWarn) { this.tempWarn = tempWarn; }
+    
+    public boolean isHumiWarn() { return humiWarn; }
+    public void setHumiWarn(boolean humiWarn) { this.humiWarn = humiWarn; }
+    
+    public boolean isCh2oWarn() { return ch2oWarn; }
+    public void setCh2oWarn(boolean ch2oWarn) { this.ch2oWarn = ch2oWarn; }
+    
+    public boolean isPm25Warn() { return pm25Warn; }
+    public void setPm25Warn(boolean pm25Warn) { this.pm25Warn = pm25Warn; }
+    
+    public boolean isCoWarn() { return coWarn; }
+    public void setCoWarn(boolean coWarn) { this.coWarn = coWarn; }
+
+    @Override
+    public String toString() {
+        return String.format("Temp:%d°C%s, Humi:%d%%%s, CH2O:%.3f%s, PM2.5:%d%s, CO:%d%s",
+            temperature, tempWarn ? "(超标)" : "",
+            humidity, humiWarn ? "(超标)" : "",
+            ch2o, ch2oWarn ? "(超标)" : "",
+            pm25, pm25Warn ? "(超标)" : "",
+            co, coWarn ? "(超标)" : "");
+    }
+}

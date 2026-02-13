@@ -1,0 +1,89 @@
+package com.example.envmonitor;
+
+import android.app.Dialog;
+import android.content.Context;
+import android.os.Bundle;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.Toast;
+
+public class SettingsDialog extends Dialog {
+    
+    public interface OnSettingConfirmListener {
+        void onTempSet(int value);
+        void onHumiSet(int value);
+        void onCh2oSet(float value);
+        void onPm25Set(int value);
+        void onCoSet(int value);
+    }
+
+    private OnSettingConfirmListener listener;
+    private EditText etTemp, etHumi, etCh2o, etPm25, etCo;
+
+    public SettingsDialog(Context context) {
+        super(context);
+    }
+
+    public void setOnSettingConfirmListener(OnSettingConfirmListener listener) {
+        this.listener = listener;
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.dialog_settings);
+        setTitle("设置报警阈值");
+
+        etTemp = findViewById(R.id.et_temp);
+        etHumi = findViewById(R.id.et_humi);
+        etCh2o = findViewById(R.id.et_ch2o);
+        etPm25 = findViewById(R.id.et_pm25);
+        etCo = findViewById(R.id.et_co);
+        
+        Button btnConfirm = findViewById(R.id.btn_confirm);
+        Button btnCancel = findViewById(R.id.btn_cancel);
+
+        btnConfirm.setOnClickListener(v -> {
+            try {
+                if (listener != null) {
+                    String tempStr = etTemp.getText().toString();
+                    if (!tempStr.isEmpty()) {
+                        int temp = Integer.parseInt(tempStr);
+                        if (temp >= 0 && temp <= 99) listener.onTempSet(temp);
+                    }
+
+                    String humiStr = etHumi.getText().toString();
+                    if (!humiStr.isEmpty()) {
+                        int humi = Integer.parseInt(humiStr);
+                        if (humi >= 0 && humi <= 99) listener.onHumiSet(humi);
+                    }
+
+                    String ch2oStr = etCh2o.getText().toString();
+                    if (!ch2oStr.isEmpty()) {
+                        float ch2o = Float.parseFloat(ch2oStr);
+                        if (ch2o >= 0 && ch2o <= 0.999) listener.onCh2oSet(ch2o);
+                    }
+
+                    String pm25Str = etPm25.getText().toString();
+                    if (!pm25Str.isEmpty()) {
+                        int pm25 = Integer.parseInt(pm25Str);
+                        if (pm25 >= 0 && pm25 <= 999) listener.onPm25Set(pm25);
+                    }
+
+                    String coStr = etCo.getText().toString();
+                    if (!coStr.isEmpty()) {
+                        int co = Integer.parseInt(coStr);
+                        if (co >= 0 && co <= 1000) listener.onCoSet(co);
+                    }
+                }
+                dismiss();
+                Toast.makeText(getContext(), "设置已发送", Toast.LENGTH_SHORT).show();
+            } catch (NumberFormatException e) {
+                Toast.makeText(getContext(), "请输入有效数字", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        btnCancel.setOnClickListener(v -> dismiss());
+    }
+}
